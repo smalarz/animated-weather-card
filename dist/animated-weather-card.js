@@ -2,11 +2,11 @@
  * Animated Weather Card for Home Assistant
  * https://github.com/smalarz/animated-weather-card
  *
- * @version 1.0.0
+ * @version 1.3.0
  * @license MIT
  */
 
-const VERSION = '1.0.0';
+const VERSION = '1.3.0';
 
 // ─── SVG WEATHER ICONS ───
 
@@ -600,29 +600,33 @@ class AnimatedWeatherCardEditor extends HTMLElement {
   setConfig(config) { this._config = { ...config }; this._render(); }
   set hass(hass) {
     this._hass = hass;
-    // Forward hass to all entity pickers already in DOM
-    if (this._pickers) {
-      Object.values(this._pickers).forEach(p => { p.hass = hass; });
-    }
     if (!this._rendered) this._render();
+    else this._updateDatalist();
   }
 
   _fireChanged() {
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: { ...this._config } } }));
   }
 
-  _createPicker(key, domains) {
-    const picker = document.createElement('ha-entity-picker');
-    picker.hass = this._hass;
-    picker.value = this._config[key] || '';
-    picker.includeDomains = domains;
-    picker.allowCustomEntity = true;
-    picker.addEventListener('value-changed', (ev) => {
-      const val = ev.detail.value;
-      if (!val) { delete this._config[key]; } else { this._config[key] = val; }
-      this._fireChanged();
-    });
-    return picker;
+  _updateDatalist() {
+    if (!this._hass || !this.shadowRoot) return;
+    const states = this._hass.states;
+
+    const weatherList = this.shadowRoot.getElementById('dl_weather');
+    if (weatherList && !weatherList.children.length) {
+      weatherList.innerHTML = Object.keys(states)
+        .filter(e => e.startsWith('weather.'))
+        .map(e => `<option value="${e}">${states[e].attributes.friendly_name || e}</option>`)
+        .join('');
+    }
+
+    const sensorList = this.shadowRoot.getElementById('dl_sensor');
+    if (sensorList && !sensorList.children.length) {
+      sensorList.innerHTML = Object.keys(states)
+        .filter(e => e.startsWith('sensor.'))
+        .map(e => `<option value="${e}">${states[e].attributes.friendly_name || e}</option>`)
+        .join('');
+    }
   }
 
   _render() {
@@ -648,14 +652,23 @@ class AnimatedWeatherCardEditor extends HTMLElement {
           box-sizing: border-box; outline: none; transition: border-color .2s;
         }
         .row input:focus, .row select:focus { border-color: var(--primary-color); }
-        .row ha-entity-picker { width: 100%; }
         .section {
           font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
           color: var(--secondary-text-color); margin: 18px 0 8px; font-weight: 600;
         }
+        .entity-val {
+          font-size: 11px; color: var(--secondary-text-color); margin-top: 2px;
+          font-style: italic;
+        }
       </style>
+      <datalist id="dl_weather"></datalist>
+      <datalist id="dl_sensor"></datalist>
       <div class="form">
-        <div class="row"><label>${e.entity}</label><div id="ph_entity"></div></div>
+        <div class="row">
+          <label>${e.entity}</label>
+          <input id="entity" list="dl_weather" value="${c.entity || ''}" placeholder="weather.home">
+          ${c.entity && this._hass?.states[c.entity] ? `<div class="entity-val">${this._hass.states[c.entity].attributes.friendly_name || ''}</div>` : ''}
+        </div>
         <div class="row"><label>${e.name}</label><input id="name" value="${c.name || ''}"></div>
         <div class="row"><label>${e.forecast_type}</label>
           <select id="forecast_type">
@@ -666,39 +679,42 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         </div>
         <div class="row"><label>${e.max_items}</label><input id="max_items" type="number" min="1" max="10" value="${c.max_items ?? 5}"></div>
         <div class="section">Sensors (optional)</div>
-        <div class="row"><label>${e.temperature_sensor}</label><div id="ph_temperature_sensor"></div></div>
-        <div class="row"><label>${e.pressure_sensor}</label><div id="ph_pressure_sensor"></div></div>
-        <div class="row"><label>${e.humidity_sensor}</label><div id="ph_humidity_sensor"></div></div>
-        <div class="row"><label>${e.wind_speed_sensor}</label><div id="ph_wind_speed_sensor"></div></div>
+        <div class="row">
+          <label>${e.temperature_sensor}</label>
+          <input id="temperature_sensor" list="dl_sensor" value="${c.temperature_sensor || ''}" placeholder="sensor.temperature">
+        </div>
+        <div class="row">
+          <label>${e.pressure_sensor}</label>
+          <input id="pressure_sensor" list="dl_sensor" value="${c.pressure_sensor || ''}" placeholder="sensor.pressure">
+        </div>
+        <div class="row">
+          <label>${e.humidity_sensor}</label>
+          <input id="humidity_sensor" list="dl_sensor" value="${c.humidity_sensor || ''}" placeholder="sensor.humidity">
+        </div>
+        <div class="row">
+          <label>${e.wind_speed_sensor}</label>
+          <input id="wind_speed_sensor" list="dl_sensor" value="${c.wind_speed_sensor || ''}" placeholder="sensor.wind_speed">
+        </div>
       </div>`;
 
-    // Create entity pickers programmatically
-    this._pickers = {};
-    const pickerDefs = [
-      ['entity', ['weather']],
-      ['temperature_sensor', ['sensor']],
-      ['pressure_sensor', ['sensor']],
-      ['humidity_sensor', ['sensor']],
-      ['wind_speed_sensor', ['sensor']],
-    ];
-    pickerDefs.forEach(([key, domains]) => {
-      const placeholder = this.shadowRoot.getElementById(`ph_${key}`);
-      if (!placeholder) return;
-      const picker = this._createPicker(key, domains);
-      placeholder.replaceWith(picker);
-      this._pickers[key] = picker;
-    });
+    this._updateDatalist();
 
-    // Wire up regular inputs
-    ['name', 'forecast_type', 'max_items'].forEach(id => {
+    // Wire up all inputs
+    const fields = ['entity','name','forecast_type','max_items','temperature_sensor','pressure_sensor','humidity_sensor','wind_speed_sensor'];
+    fields.forEach(id => {
       const el = this.shadowRoot.getElementById(id);
       if (!el) return;
-      el.addEventListener('change', (ev) => {
+      const handler = (ev) => {
         let v = ev.target.value;
         if (ev.target.type === 'number') v = parseInt(v);
         if (v === '' || v === undefined) { delete this._config[id]; } else { this._config[id] = v; }
         this._fireChanged();
-      });
+      };
+      el.addEventListener('change', handler);
+      // Also fire on input for entity fields so the card updates as user types/selects
+      if (id !== 'name' && id !== 'max_items' && id !== 'forecast_type') {
+        el.addEventListener('input', handler);
+      }
     });
   }
 }
