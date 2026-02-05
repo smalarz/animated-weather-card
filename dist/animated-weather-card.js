@@ -598,7 +598,27 @@ class AnimatedWeatherCard extends HTMLElement {
 class AnimatedWeatherCardEditor extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); this._config = {}; }
   setConfig(config) { this._config = { ...config }; this._render(); }
-  set hass(hass) { this._hass = hass; if (!this._rendered) this._render(); }
+  set hass(hass) {
+    this._hass = hass;
+    // Forward hass to all entity pickers
+    if (this.shadowRoot) {
+      this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(el => { el.hass = hass; });
+    }
+    if (!this._rendered) this._render();
+  }
+
+  _fireChanged() {
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: { ...this._config } } }));
+  }
+
+  _valueChanged(key, val) {
+    if (val === '' || val === undefined || val === null) {
+      delete this._config[key];
+    } else {
+      this._config[key] = val;
+    }
+    this._fireChanged();
+  }
 
   _render() {
     this._rendered = true;
@@ -610,7 +630,10 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         :host { display: block; }
         .form { padding: 16px 0; }
         .row { margin-bottom: 14px; }
-        .row label { display: block; font-size: 12px; margin-bottom: 4px; color: var(--secondary-text-color); font-weight: 500; }
+        .row label {
+          display: block; font-size: 12px; margin-bottom: 4px;
+          color: var(--secondary-text-color); font-weight: 500;
+        }
         .row input, .row select {
           width: 100%; padding: 10px; border-radius: 8px;
           border: 1px solid var(--divider-color, #e0e0e0);
@@ -619,10 +642,23 @@ class AnimatedWeatherCardEditor extends HTMLElement {
           box-sizing: border-box; outline: none; transition: border-color .2s;
         }
         .row input:focus, .row select:focus { border-color: var(--primary-color); }
-        .section { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--secondary-text-color); margin: 18px 0 8px; font-weight: 600; }
+        .row ha-entity-picker { width: 100%; }
+        .section {
+          font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+          color: var(--secondary-text-color); margin: 18px 0 8px; font-weight: 600;
+        }
       </style>
       <div class="form">
-        <div class="row"><label>${e.entity}</label><input id="entity" value="${c.entity || ''}"></div>
+        <div class="row">
+          <label>${e.entity}</label>
+          <ha-entity-picker
+            id="entity"
+            .hass=${null}
+            .value="${c.entity || ''}"
+            .includeDomains=${['weather']}
+            allow-custom-entity
+          ></ha-entity-picker>
+        </div>
         <div class="row"><label>${e.name}</label><input id="name" value="${c.name || ''}"></div>
         <div class="row"><label>${e.forecast_type}</label>
           <select id="forecast_type">
@@ -633,20 +669,47 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         </div>
         <div class="row"><label>${e.max_items}</label><input id="max_items" type="number" min="1" max="10" value="${c.max_items ?? 5}"></div>
         <div class="section">Sensors (optional)</div>
-        <div class="row"><label>${e.temperature_sensor}</label><input id="temperature_sensor" value="${c.temperature_sensor || ''}"></div>
-        <div class="row"><label>${e.pressure_sensor}</label><input id="pressure_sensor" value="${c.pressure_sensor || ''}"></div>
-        <div class="row"><label>${e.humidity_sensor}</label><input id="humidity_sensor" value="${c.humidity_sensor || ''}"></div>
-        <div class="row"><label>${e.wind_speed_sensor}</label><input id="wind_speed_sensor" value="${c.wind_speed_sensor || ''}"></div>
+        <div class="row">
+          <label>${e.temperature_sensor}</label>
+          <ha-entity-picker id="temperature_sensor" .hass=${null} .value="${c.temperature_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
+        </div>
+        <div class="row">
+          <label>${e.pressure_sensor}</label>
+          <ha-entity-picker id="pressure_sensor" .hass=${null} .value="${c.pressure_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
+        </div>
+        <div class="row">
+          <label>${e.humidity_sensor}</label>
+          <ha-entity-picker id="humidity_sensor" .hass=${null} .value="${c.humidity_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
+        </div>
+        <div class="row">
+          <label>${e.wind_speed_sensor}</label>
+          <ha-entity-picker id="wind_speed_sensor" .hass=${null} .value="${c.wind_speed_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
+        </div>
       </div>`;
-    const fields = ['entity','name','forecast_type','max_items','temperature_sensor','pressure_sensor','humidity_sensor','wind_speed_sensor'];
-    fields.forEach(id => {
+
+    // Wire up entity pickers
+    const pickerIds = ['entity', 'temperature_sensor', 'pressure_sensor', 'humidity_sensor', 'wind_speed_sensor'];
+    pickerIds.forEach(id => {
+      const picker = this.shadowRoot.getElementById(id);
+      if (!picker) return;
+      if (this._hass) picker.hass = this._hass;
+      // Set includeDomains programmatically (lit template strings don't work in innerHTML)
+      picker.includeDomains = id === 'entity' ? ['weather'] : ['sensor'];
+      picker.value = this._config[id] || '';
+      picker.allowCustomEntity = true;
+      picker.addEventListener('value-changed', (ev) => {
+        this._valueChanged(id, ev.detail.value);
+      });
+    });
+
+    // Wire up regular inputs
+    ['name', 'forecast_type', 'max_items'].forEach(id => {
       const el = this.shadowRoot.getElementById(id);
       if (!el) return;
       el.addEventListener('change', (ev) => {
         let v = ev.target.value;
         if (ev.target.type === 'number') v = parseInt(v);
-        if (v === '' || v === undefined) { delete this._config[id]; } else { this._config[id] = v; }
-        this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: { ...this._config } } }));
+        this._valueChanged(id, v);
       });
     });
   }
