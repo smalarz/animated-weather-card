@@ -2,11 +2,11 @@
  * Animated Weather Card for Home Assistant
  * https://github.com/smalarz/animated-weather-card
  *
- * @version 1.3.0
+ * @version 1.4.0
  * @license MIT
  */
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 
 // ─── SVG WEATHER ICONS ───
 
@@ -601,53 +601,59 @@ class AnimatedWeatherCardEditor extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._rendered) this._render();
-    else this._updateDatalists();
   }
 
   _fireChanged() {
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: { ...this._config } } }));
   }
 
-  _buildOptions(filterFn) {
-    if (!this._hass) return '';
-    const states = this._hass.states;
-    return Object.keys(states)
-      .filter(filterFn)
-      .sort()
-      .map(e => {
-        const fn = states[e].attributes.friendly_name;
-        return `<option value="${e}">${fn ? fn + ' (' + e + ')' : e}</option>`;
-      })
-      .join('');
+  _getEntities(filterFn) {
+    if (!this._hass) return [];
+    return Object.keys(this._hass.states).filter(filterFn).sort().map(id => ({
+      id, name: this._hass.states[id].attributes.friendly_name || id
+    }));
   }
 
-  _updateDatalists() {
-    if (!this._hass || !this.shadowRoot) return;
-    const s = this._hass.states;
+  _createAutocomplete(container, key, entities, placeholder) {
+    const input = container.querySelector('input');
+    const dropdown = container.querySelector('.ac-list');
+    let selectedIdx = -1;
 
-    const setList = (id, filterFn) => {
-      const dl = this.shadowRoot.getElementById(id);
-      if (dl && !dl.children.length) dl.innerHTML = this._buildOptions(filterFn);
+    const show = (items) => {
+      dropdown.innerHTML = items.map((e, i) =>
+        `<div class="ac-item${i === selectedIdx ? ' ac-active' : ''}" data-val="${e.id}">${e.name} <span class="ac-id">${e.id}</span></div>`
+      ).join('');
+      dropdown.style.display = items.length ? 'block' : 'none';
     };
 
-    setList('dl_weather', e => e.startsWith('weather.'));
-    setList('dl_temp', e => e.startsWith('sensor.') && (
-      s[e].attributes.device_class === 'temperature' ||
-      e.includes('temp') || e.includes('temperatura')
-    ));
-    setList('dl_press', e => e.startsWith('sensor.') && (
-      s[e].attributes.device_class === 'pressure' ||
-      s[e].attributes.device_class === 'atmospheric_pressure' ||
-      e.includes('press') || e.includes('cisn')
-    ));
-    setList('dl_hum', e => e.startsWith('sensor.') && (
-      s[e].attributes.device_class === 'humidity' ||
-      e.includes('humid') || e.includes('wilgot')
-    ));
-    setList('dl_wind', e => e.startsWith('sensor.') && (
-      s[e].attributes.device_class === 'wind_speed' ||
-      e.includes('wind') || e.includes('wiatr')
-    ));
+    const hide = () => { setTimeout(() => { dropdown.style.display = 'none'; }, 200); };
+
+    const filter = (q) => {
+      const lq = q.toLowerCase();
+      return entities.filter(e => e.id.toLowerCase().includes(lq) || e.name.toLowerCase().includes(lq)).slice(0, 50);
+    };
+
+    input.addEventListener('focus', () => { show(filter(input.value)); });
+    input.addEventListener('blur', hide);
+    input.addEventListener('input', () => { selectedIdx = -1; show(filter(input.value)); });
+    input.addEventListener('keydown', (ev) => {
+      const items = dropdown.querySelectorAll('.ac-item');
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, items.length - 1); show(filter(input.value)); items[selectedIdx]?.scrollIntoView({block:'nearest'}); }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); selectedIdx = Math.max(selectedIdx - 1, 0); show(filter(input.value)); items[selectedIdx]?.scrollIntoView({block:'nearest'}); }
+      else if (ev.key === 'Enter' && selectedIdx >= 0 && items[selectedIdx]) { ev.preventDefault(); input.value = items[selectedIdx].dataset.val; dropdown.style.display = 'none'; this._config[key] = input.value; this._fireChanged(); }
+      else if (ev.key === 'Escape') { dropdown.style.display = 'none'; }
+    });
+
+    dropdown.addEventListener('mousedown', (ev) => {
+      const item = ev.target.closest('.ac-item');
+      if (item) { input.value = item.dataset.val; dropdown.style.display = 'none'; this._config[key] = input.value; this._fireChanged(); }
+    });
+
+    input.addEventListener('change', () => {
+      const v = input.value.trim();
+      if (v) { this._config[key] = v; } else { delete this._config[key]; }
+      this._fireChanged();
+    });
   }
 
   _render() {
@@ -655,6 +661,7 @@ class AnimatedWeatherCardEditor extends HTMLElement {
     const c = this._config;
     const l = getLocale(this._hass);
     const e = l.editor;
+    const s = this._hass?.states || {};
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -677,21 +684,39 @@ class AnimatedWeatherCardEditor extends HTMLElement {
           font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
           color: var(--secondary-text-color); margin: 18px 0 8px; font-weight: 600;
         }
+        .ac-wrap { position: relative; }
+        .ac-list {
+          display: none; position: absolute; z-index: 999; left: 0; right: 0;
+          max-height: 200px; overflow-y: auto;
+          background: var(--card-background-color, #fff);
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-top: none; border-radius: 0 0 8px 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,.15);
+        }
+        .ac-item {
+          padding: 8px 10px; cursor: pointer; font-size: 13px;
+          color: var(--primary-text-color);
+          border-bottom: 1px solid var(--divider-color, #f0f0f0);
+        }
+        .ac-item:last-child { border-bottom: none; }
+        .ac-item:hover, .ac-active {
+          background: var(--primary-color, #03a9f4); color: #fff;
+        }
+        .ac-item:hover .ac-id, .ac-active .ac-id { color: rgba(255,255,255,.7); }
+        .ac-id { font-size: 11px; color: var(--secondary-text-color); margin-left: 6px; }
         .entity-hint {
           font-size: 11px; color: var(--secondary-text-color); margin-top: 2px;
           font-style: italic;
         }
       </style>
-      <datalist id="dl_weather"></datalist>
-      <datalist id="dl_temp"></datalist>
-      <datalist id="dl_press"></datalist>
-      <datalist id="dl_hum"></datalist>
-      <datalist id="dl_wind"></datalist>
       <div class="form">
         <div class="row">
           <label>${e.entity}</label>
-          <input id="entity" list="dl_weather" value="${c.entity || ''}" placeholder="weather.home">
-          ${c.entity && this._hass?.states[c.entity] ? `<div class="entity-hint">${this._hass.states[c.entity].attributes.friendly_name || ''}</div>` : ''}
+          <div class="ac-wrap">
+            <input id="entity" value="${c.entity || ''}" placeholder="weather.home" autocomplete="off">
+            <div class="ac-list"></div>
+          </div>
+          ${c.entity && s[c.entity] ? `<div class="entity-hint">${s[c.entity].attributes.friendly_name || ''}</div>` : ''}
         </div>
         <div class="row"><label>${e.name}</label><input id="name" value="${c.name || ''}"></div>
         <div class="row"><label>${e.forecast_type}</label>
@@ -705,27 +730,52 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         <div class="section">Sensors (optional)</div>
         <div class="row">
           <label>${e.temperature_sensor}</label>
-          <input id="temperature_sensor" list="dl_temp" value="${c.temperature_sensor || ''}" placeholder="sensor.temperature">
+          <div class="ac-wrap"><input id="temperature_sensor" value="${c.temperature_sensor || ''}" placeholder="sensor.temperature" autocomplete="off"><div class="ac-list"></div></div>
         </div>
         <div class="row">
           <label>${e.pressure_sensor}</label>
-          <input id="pressure_sensor" list="dl_press" value="${c.pressure_sensor || ''}" placeholder="sensor.pressure">
+          <div class="ac-wrap"><input id="pressure_sensor" value="${c.pressure_sensor || ''}" placeholder="sensor.pressure" autocomplete="off"><div class="ac-list"></div></div>
         </div>
         <div class="row">
           <label>${e.humidity_sensor}</label>
-          <input id="humidity_sensor" list="dl_hum" value="${c.humidity_sensor || ''}" placeholder="sensor.humidity">
+          <div class="ac-wrap"><input id="humidity_sensor" value="${c.humidity_sensor || ''}" placeholder="sensor.humidity" autocomplete="off"><div class="ac-list"></div></div>
         </div>
         <div class="row">
           <label>${e.wind_speed_sensor}</label>
-          <input id="wind_speed_sensor" list="dl_wind" value="${c.wind_speed_sensor || ''}" placeholder="sensor.wind_speed">
+          <div class="ac-wrap"><input id="wind_speed_sensor" value="${c.wind_speed_sensor || ''}" placeholder="sensor.wind_speed" autocomplete="off"><div class="ac-list"></div></div>
         </div>
       </div>`;
 
-    this._updateDatalists();
+    // Build entity lists
+    const weatherEntities = this._getEntities(e => e.startsWith('weather.'));
+    const tempEntities = this._getEntities(e => e.startsWith('sensor.') && (
+      s[e]?.attributes.device_class === 'temperature' || e.includes('temp') || e.includes('temperatura')
+    ));
+    const pressEntities = this._getEntities(e => e.startsWith('sensor.') && (
+      s[e]?.attributes.device_class === 'pressure' || s[e]?.attributes.device_class === 'atmospheric_pressure' || e.includes('press') || e.includes('cisn')
+    ));
+    const humEntities = this._getEntities(e => e.startsWith('sensor.') && (
+      s[e]?.attributes.device_class === 'humidity' || e.includes('humid') || e.includes('wilgot')
+    ));
+    const windEntities = this._getEntities(e => e.startsWith('sensor.') && (
+      s[e]?.attributes.device_class === 'wind_speed' || e.includes('wind') || e.includes('wiatr')
+    ));
 
-    // Wire up all inputs — only 'change' event (not 'input') to avoid re-render losing focus
-    const fields = ['entity','name','forecast_type','max_items','temperature_sensor','pressure_sensor','humidity_sensor','wind_speed_sensor'];
-    fields.forEach(id => {
+    // Wire up autocompletes
+    const acDefs = [
+      ['entity', weatherEntities],
+      ['temperature_sensor', tempEntities],
+      ['pressure_sensor', pressEntities],
+      ['humidity_sensor', humEntities],
+      ['wind_speed_sensor', windEntities],
+    ];
+    acDefs.forEach(([key, ents]) => {
+      const wrap = this.shadowRoot.getElementById(key)?.closest('.ac-wrap');
+      if (wrap) this._createAutocomplete(wrap, key, ents);
+    });
+
+    // Wire up regular inputs
+    ['name', 'forecast_type', 'max_items'].forEach(id => {
       const el = this.shadowRoot.getElementById(id);
       if (!el) return;
       el.addEventListener('change', (ev) => {
