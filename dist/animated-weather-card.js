@@ -600,9 +600,9 @@ class AnimatedWeatherCardEditor extends HTMLElement {
   setConfig(config) { this._config = { ...config }; this._render(); }
   set hass(hass) {
     this._hass = hass;
-    // Forward hass to all entity pickers
-    if (this.shadowRoot) {
-      this.shadowRoot.querySelectorAll('ha-entity-picker').forEach(el => { el.hass = hass; });
+    // Forward hass to all entity pickers already in DOM
+    if (this._pickers) {
+      Object.values(this._pickers).forEach(p => { p.hass = hass; });
     }
     if (!this._rendered) this._render();
   }
@@ -611,13 +611,18 @@ class AnimatedWeatherCardEditor extends HTMLElement {
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: { ...this._config } } }));
   }
 
-  _valueChanged(key, val) {
-    if (val === '' || val === undefined || val === null) {
-      delete this._config[key];
-    } else {
-      this._config[key] = val;
-    }
-    this._fireChanged();
+  _createPicker(key, domains) {
+    const picker = document.createElement('ha-entity-picker');
+    picker.hass = this._hass;
+    picker.value = this._config[key] || '';
+    picker.includeDomains = domains;
+    picker.allowCustomEntity = true;
+    picker.addEventListener('value-changed', (ev) => {
+      const val = ev.detail.value;
+      if (!val) { delete this._config[key]; } else { this._config[key] = val; }
+      this._fireChanged();
+    });
+    return picker;
   }
 
   _render() {
@@ -625,6 +630,7 @@ class AnimatedWeatherCardEditor extends HTMLElement {
     const c = this._config;
     const l = getLocale(this._hass);
     const e = l.editor;
+
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; }
@@ -649,16 +655,7 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         }
       </style>
       <div class="form">
-        <div class="row">
-          <label>${e.entity}</label>
-          <ha-entity-picker
-            id="entity"
-            .hass=${null}
-            .value="${c.entity || ''}"
-            .includeDomains=${['weather']}
-            allow-custom-entity
-          ></ha-entity-picker>
-        </div>
+        <div class="row"><label>${e.entity}</label><div id="ph_entity"></div></div>
         <div class="row"><label>${e.name}</label><input id="name" value="${c.name || ''}"></div>
         <div class="row"><label>${e.forecast_type}</label>
           <select id="forecast_type">
@@ -669,37 +666,27 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         </div>
         <div class="row"><label>${e.max_items}</label><input id="max_items" type="number" min="1" max="10" value="${c.max_items ?? 5}"></div>
         <div class="section">Sensors (optional)</div>
-        <div class="row">
-          <label>${e.temperature_sensor}</label>
-          <ha-entity-picker id="temperature_sensor" .hass=${null} .value="${c.temperature_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
-        </div>
-        <div class="row">
-          <label>${e.pressure_sensor}</label>
-          <ha-entity-picker id="pressure_sensor" .hass=${null} .value="${c.pressure_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
-        </div>
-        <div class="row">
-          <label>${e.humidity_sensor}</label>
-          <ha-entity-picker id="humidity_sensor" .hass=${null} .value="${c.humidity_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
-        </div>
-        <div class="row">
-          <label>${e.wind_speed_sensor}</label>
-          <ha-entity-picker id="wind_speed_sensor" .hass=${null} .value="${c.wind_speed_sensor || ''}" .includeDomains=${['sensor']} allow-custom-entity></ha-entity-picker>
-        </div>
+        <div class="row"><label>${e.temperature_sensor}</label><div id="ph_temperature_sensor"></div></div>
+        <div class="row"><label>${e.pressure_sensor}</label><div id="ph_pressure_sensor"></div></div>
+        <div class="row"><label>${e.humidity_sensor}</label><div id="ph_humidity_sensor"></div></div>
+        <div class="row"><label>${e.wind_speed_sensor}</label><div id="ph_wind_speed_sensor"></div></div>
       </div>`;
 
-    // Wire up entity pickers
-    const pickerIds = ['entity', 'temperature_sensor', 'pressure_sensor', 'humidity_sensor', 'wind_speed_sensor'];
-    pickerIds.forEach(id => {
-      const picker = this.shadowRoot.getElementById(id);
-      if (!picker) return;
-      if (this._hass) picker.hass = this._hass;
-      // Set includeDomains programmatically (lit template strings don't work in innerHTML)
-      picker.includeDomains = id === 'entity' ? ['weather'] : ['sensor'];
-      picker.value = this._config[id] || '';
-      picker.allowCustomEntity = true;
-      picker.addEventListener('value-changed', (ev) => {
-        this._valueChanged(id, ev.detail.value);
-      });
+    // Create entity pickers programmatically
+    this._pickers = {};
+    const pickerDefs = [
+      ['entity', ['weather']],
+      ['temperature_sensor', ['sensor']],
+      ['pressure_sensor', ['sensor']],
+      ['humidity_sensor', ['sensor']],
+      ['wind_speed_sensor', ['sensor']],
+    ];
+    pickerDefs.forEach(([key, domains]) => {
+      const placeholder = this.shadowRoot.getElementById(`ph_${key}`);
+      if (!placeholder) return;
+      const picker = this._createPicker(key, domains);
+      placeholder.replaceWith(picker);
+      this._pickers[key] = picker;
     });
 
     // Wire up regular inputs
@@ -709,7 +696,8 @@ class AnimatedWeatherCardEditor extends HTMLElement {
       el.addEventListener('change', (ev) => {
         let v = ev.target.value;
         if (ev.target.type === 'number') v = parseInt(v);
-        this._valueChanged(id, v);
+        if (v === '' || v === undefined) { delete this._config[id]; } else { this._config[id] = v; }
+        this._fireChanged();
       });
     });
   }
