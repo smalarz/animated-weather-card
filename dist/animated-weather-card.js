@@ -601,32 +601,53 @@ class AnimatedWeatherCardEditor extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._rendered) this._render();
-    else this._updateDatalist();
+    else this._updateDatalists();
   }
 
   _fireChanged() {
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: { ...this._config } } }));
   }
 
-  _updateDatalist() {
-    if (!this._hass || !this.shadowRoot) return;
+  _buildOptions(filterFn) {
+    if (!this._hass) return '';
     const states = this._hass.states;
+    return Object.keys(states)
+      .filter(filterFn)
+      .sort()
+      .map(e => {
+        const fn = states[e].attributes.friendly_name;
+        return `<option value="${e}">${fn ? fn + ' (' + e + ')' : e}</option>`;
+      })
+      .join('');
+  }
 
-    const weatherList = this.shadowRoot.getElementById('dl_weather');
-    if (weatherList && !weatherList.children.length) {
-      weatherList.innerHTML = Object.keys(states)
-        .filter(e => e.startsWith('weather.'))
-        .map(e => `<option value="${e}">${states[e].attributes.friendly_name || e}</option>`)
-        .join('');
-    }
+  _updateDatalists() {
+    if (!this._hass || !this.shadowRoot) return;
+    const s = this._hass.states;
 
-    const sensorList = this.shadowRoot.getElementById('dl_sensor');
-    if (sensorList && !sensorList.children.length) {
-      sensorList.innerHTML = Object.keys(states)
-        .filter(e => e.startsWith('sensor.'))
-        .map(e => `<option value="${e}">${states[e].attributes.friendly_name || e}</option>`)
-        .join('');
-    }
+    const setList = (id, filterFn) => {
+      const dl = this.shadowRoot.getElementById(id);
+      if (dl && !dl.children.length) dl.innerHTML = this._buildOptions(filterFn);
+    };
+
+    setList('dl_weather', e => e.startsWith('weather.'));
+    setList('dl_temp', e => e.startsWith('sensor.') && (
+      s[e].attributes.device_class === 'temperature' ||
+      e.includes('temp') || e.includes('temperatura')
+    ));
+    setList('dl_press', e => e.startsWith('sensor.') && (
+      s[e].attributes.device_class === 'pressure' ||
+      s[e].attributes.device_class === 'atmospheric_pressure' ||
+      e.includes('press') || e.includes('cisn')
+    ));
+    setList('dl_hum', e => e.startsWith('sensor.') && (
+      s[e].attributes.device_class === 'humidity' ||
+      e.includes('humid') || e.includes('wilgot')
+    ));
+    setList('dl_wind', e => e.startsWith('sensor.') && (
+      s[e].attributes.device_class === 'wind_speed' ||
+      e.includes('wind') || e.includes('wiatr')
+    ));
   }
 
   _render() {
@@ -656,18 +677,21 @@ class AnimatedWeatherCardEditor extends HTMLElement {
           font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
           color: var(--secondary-text-color); margin: 18px 0 8px; font-weight: 600;
         }
-        .entity-val {
+        .entity-hint {
           font-size: 11px; color: var(--secondary-text-color); margin-top: 2px;
           font-style: italic;
         }
       </style>
       <datalist id="dl_weather"></datalist>
-      <datalist id="dl_sensor"></datalist>
+      <datalist id="dl_temp"></datalist>
+      <datalist id="dl_press"></datalist>
+      <datalist id="dl_hum"></datalist>
+      <datalist id="dl_wind"></datalist>
       <div class="form">
         <div class="row">
           <label>${e.entity}</label>
           <input id="entity" list="dl_weather" value="${c.entity || ''}" placeholder="weather.home">
-          ${c.entity && this._hass?.states[c.entity] ? `<div class="entity-val">${this._hass.states[c.entity].attributes.friendly_name || ''}</div>` : ''}
+          ${c.entity && this._hass?.states[c.entity] ? `<div class="entity-hint">${this._hass.states[c.entity].attributes.friendly_name || ''}</div>` : ''}
         </div>
         <div class="row"><label>${e.name}</label><input id="name" value="${c.name || ''}"></div>
         <div class="row"><label>${e.forecast_type}</label>
@@ -681,40 +705,35 @@ class AnimatedWeatherCardEditor extends HTMLElement {
         <div class="section">Sensors (optional)</div>
         <div class="row">
           <label>${e.temperature_sensor}</label>
-          <input id="temperature_sensor" list="dl_sensor" value="${c.temperature_sensor || ''}" placeholder="sensor.temperature">
+          <input id="temperature_sensor" list="dl_temp" value="${c.temperature_sensor || ''}" placeholder="sensor.temperature">
         </div>
         <div class="row">
           <label>${e.pressure_sensor}</label>
-          <input id="pressure_sensor" list="dl_sensor" value="${c.pressure_sensor || ''}" placeholder="sensor.pressure">
+          <input id="pressure_sensor" list="dl_press" value="${c.pressure_sensor || ''}" placeholder="sensor.pressure">
         </div>
         <div class="row">
           <label>${e.humidity_sensor}</label>
-          <input id="humidity_sensor" list="dl_sensor" value="${c.humidity_sensor || ''}" placeholder="sensor.humidity">
+          <input id="humidity_sensor" list="dl_hum" value="${c.humidity_sensor || ''}" placeholder="sensor.humidity">
         </div>
         <div class="row">
           <label>${e.wind_speed_sensor}</label>
-          <input id="wind_speed_sensor" list="dl_sensor" value="${c.wind_speed_sensor || ''}" placeholder="sensor.wind_speed">
+          <input id="wind_speed_sensor" list="dl_wind" value="${c.wind_speed_sensor || ''}" placeholder="sensor.wind_speed">
         </div>
       </div>`;
 
-    this._updateDatalist();
+    this._updateDatalists();
 
-    // Wire up all inputs
+    // Wire up all inputs — only 'change' event (not 'input') to avoid re-render losing focus
     const fields = ['entity','name','forecast_type','max_items','temperature_sensor','pressure_sensor','humidity_sensor','wind_speed_sensor'];
     fields.forEach(id => {
       const el = this.shadowRoot.getElementById(id);
       if (!el) return;
-      const handler = (ev) => {
+      el.addEventListener('change', (ev) => {
         let v = ev.target.value;
         if (ev.target.type === 'number') v = parseInt(v);
         if (v === '' || v === undefined) { delete this._config[id]; } else { this._config[id] = v; }
         this._fireChanged();
-      };
-      el.addEventListener('change', handler);
-      // Also fire on input for entity fields so the card updates as user types/selects
-      if (id !== 'name' && id !== 'max_items' && id !== 'forecast_type') {
-        el.addEventListener('input', handler);
-      }
+      });
     });
   }
 }
