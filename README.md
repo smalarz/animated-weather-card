@@ -6,9 +6,17 @@ A custom weather card for [Home Assistant](https://www.home-assistant.io/) with 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0-green.svg)]()
 
-<!-- Add your screenshots here -->
-<!-- ![Day](screenshots/day.png) -->
-<!-- ![Night](screenshots/night.png) -->
+## Preview
+
+| Day | Night | Rain |
+|-----|-------|------|
+| ![Day](screenshots/screenshot-day.png) | ![Night](screenshots/screenshot-night.png) | ![Rain](screenshots/screenshot-rain.png) |
+
+| Snow | Storm | Clouds |
+|------|-------|--------|
+| ![Snow](screenshots/screenshot-snow.png) | ![Storm](screenshots/screenshot-storm.png) | ![Clouds](screenshots/screenshot-clouds.png) |
+
+![All conditions](screenshots/screenshot-all.png)
 
 ## Features
 
