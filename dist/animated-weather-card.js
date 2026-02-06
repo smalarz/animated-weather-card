@@ -2,11 +2,11 @@
  * Animated Weather Card for Home Assistant
  * https://github.com/smalarz/animated-weather-card
  *
- * @version 1.4.0
+ * @version 1.5.0
  * @license MIT
  */
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 
 // ─── SVG WEATHER ICONS ───
 
@@ -343,23 +343,23 @@ class AnimatedWeatherCard extends HTMLElement {
     if (!this._config.show_animations) return '';
     let h = '';
 
-    // Rain
+    // Rain — reduced from 70 to 45 for pouring, 35→25 for rain
     if (['rainy', 'pouring', 'lightning-rainy'].includes(condition)) {
-      const n = condition === 'pouring' ? 70 : 35;
+      const n = condition === 'pouring' ? 45 : 25;
       for (let i = 0; i < n; i++) {
         h += `<div class="anim-rain" style="left:${(i/n*100+Math.random()*(100/n)).toFixed(1)}%;animation-delay:${(Math.random()*2).toFixed(2)}s;animation-duration:${(0.4+Math.random()*0.3).toFixed(2)}s;opacity:${(0.3+Math.random()*0.5).toFixed(2)}"></div>`;
       }
     }
-    // Snow
+    // Snow — reduced from 45 to 30
     if (['snowy', 'snowy-rainy'].includes(condition)) {
-      for (let i = 0; i < 45; i++) {
+      for (let i = 0; i < 30; i++) {
         const sz = (2 + Math.random() * 4).toFixed(1);
         h += `<div class="anim-snow" style="left:${(Math.random()*100).toFixed(1)}%;animation-delay:${(Math.random()*6).toFixed(2)}s;animation-duration:${(3+Math.random()*4).toFixed(2)}s;width:${sz}px;height:${sz}px"></div>`;
       }
     }
-    // Hail
+    // Hail — reduced from 25 to 18
     if (condition === 'hail') {
-      for (let i = 0; i < 25; i++) {
+      for (let i = 0; i < 18; i++) {
         h += `<div class="anim-hail" style="left:${(Math.random()*100).toFixed(1)}%;animation-delay:${(Math.random()*2).toFixed(2)}s;animation-duration:${(0.3+Math.random()*0.2).toFixed(2)}s"></div>`;
       }
     }
@@ -367,17 +367,17 @@ class AnimatedWeatherCard extends HTMLElement {
     if (['lightning', 'lightning-rainy'].includes(condition)) {
       h += '<div class="anim-lightning"></div>';
     }
-    // Clouds
+    // Clouds — reduced fog from 6 to 4
     if (['cloudy', 'partlycloudy', 'fog', 'windy', 'windy-variant'].includes(condition)) {
-      const n = condition === 'cloudy' ? 5 : condition === 'fog' ? 6 : 3;
+      const n = condition === 'cloudy' ? 4 : condition === 'fog' ? 4 : 3;
       for (let i = 0; i < n; i++) {
         const op = condition === 'fog' ? (0.25+Math.random()*0.25) : (0.12+Math.random()*0.22);
         h += `<div class="anim-cloud" style="top:${(5+Math.random()*45).toFixed(1)}%;animation-delay:${(Math.random()*20).toFixed(2)}s;animation-duration:${(25+Math.random()*25).toFixed(2)}s;--cs:${(0.4+Math.random()*0.7).toFixed(2)};opacity:${op.toFixed(2)}"></div>`;
       }
     }
-    // Stars
+    // Stars — reduced from 30 to 20
     if (isNight && condition === 'clear-night') {
-      for (let i = 0; i < 30; i++) {
+      for (let i = 0; i < 20; i++) {
         const sz = (1 + Math.random() * 2).toFixed(1);
         h += `<div class="anim-star" style="left:${(Math.random()*100).toFixed(1)}%;top:${(Math.random()*55).toFixed(1)}%;animation-delay:${(Math.random()*5).toFixed(2)}s;width:${sz}px;height:${sz}px"></div>`;
       }
@@ -436,7 +436,14 @@ class AnimatedWeatherCard extends HTMLElement {
       bg.style.textShadow = dark ? '0 1px 3px rgba(0,0,0,0.5)' : (light ? 'none' : '0 1px 3px rgba(0,0,0,0.25)');
       bg.style.setProperty('--cloud-bg', night ? 'rgba(100,120,150,0.4)' : 'rgba(255,255,255,0.4)');
 
-      this.shadowRoot.getElementById('anim').innerHTML = this._buildAnimations(cond, night);
+      // Defer animation insertion so card content renders first
+      const animEl = this.shadowRoot.getElementById('anim');
+      animEl.innerHTML = '';
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          animEl.innerHTML = this._buildAnimations(cond, night);
+        });
+      });
     }
 
     // Data
@@ -503,7 +510,10 @@ class AnimatedWeatherCard extends HTMLElement {
         position: relative; overflow: hidden; min-height: 180px; padding: 20px;
         display: flex; flex-direction: column; transition: background 1s ease, color .5s ease;
       }
-      .anim-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+      .anim-layer {
+        position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 1;
+        contain: strict;
+      }
       .content { position: relative; z-index: 2; flex: 1; display: flex; flex-direction: column; }
       .header { margin-bottom: 8px; }
       .name { font-size: var(--awc-name-size, 14px); font-weight: 500; opacity: .9; letter-spacing: .5px; }
@@ -525,7 +535,6 @@ class AnimatedWeatherCard extends HTMLElement {
         display: flex; flex-direction: column; align-items: center; gap: 3px;
         padding: 6px 2px; border-radius: var(--awc-fc-radius, 8px);
         background: var(--awc-fc-bg, rgba(255,255,255,.1));
-        backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
       }
       .fc-time { font-size: 11px; font-weight: 600; opacity: .9; text-transform: uppercase; letter-spacing: .5px; }
       .fc-icon { line-height: 1; }
@@ -538,13 +547,17 @@ class AnimatedWeatherCard extends HTMLElement {
       .anim-rain {
         position: absolute; top: -15px; width: 1.5px; height: 15px;
         background: linear-gradient(transparent, var(--awc-rain-color, rgba(200,220,255,.6)));
-        border-radius: 0 0 2px 2px; animation: _rain linear infinite;
+        border-radius: 0 0 2px 2px;
+        will-change: transform;
+        animation: _rain linear infinite;
       }
       @keyframes _rain { to { transform: translateY(350px); } }
 
       .anim-snow {
         position: absolute; top: -10px; background: var(--awc-snow-color, rgba(255,255,255,.85));
-        border-radius: 50%; animation: _snow linear infinite;
+        border-radius: 50%;
+        will-change: transform;
+        animation: _snow linear infinite;
       }
       @keyframes _snow {
         0%   { transform: translateY(0)     translateX(0); }
@@ -557,21 +570,28 @@ class AnimatedWeatherCard extends HTMLElement {
       .anim-hail {
         position: absolute; top: -10px; width: 5px; height: 5px;
         background: var(--awc-hail-color, rgba(200,220,240,.8));
-        border-radius: 50%; animation: _hail linear infinite;
+        border-radius: 50%;
+        will-change: transform;
+        animation: _hail linear infinite;
       }
       @keyframes _hail { to { transform: translateY(350px); } }
 
-      .anim-lightning { position: absolute; inset: 0; animation: _lightning 5s infinite; }
+      .anim-lightning {
+        position: absolute; inset: 0;
+        will-change: opacity;
+        animation: _lightning 5s infinite;
+      }
       @keyframes _lightning {
-        0%,92%,95%,98%,100% { background: transparent; }
-        93% { background: rgba(255,255,255,.35); }
-        97% { background: rgba(255,255,255,.15); }
+        0%,92%,95%,98%,100% { opacity: 0; }
+        93% { opacity: 1; background: rgba(255,255,255,.35); }
+        97% { opacity: 1; background: rgba(255,255,255,.15); }
       }
 
       .anim-cloud {
         position: absolute; width: 120px; height: 40px;
         background: var(--cloud-bg, rgba(255,255,255,.4));
-        border-radius: 40px; transform: scale(var(--cs,1));
+        border-radius: 40px;
+        will-change: transform;
         animation: _cloud linear infinite;
       }
       .anim-cloud::before {
@@ -582,10 +602,14 @@ class AnimatedWeatherCard extends HTMLElement {
         content: ''; position: absolute; width: 70px; height: 45px;
         background: inherit; border-radius: 50%; top: -18px; left: 45px;
       }
-      @keyframes _cloud { from { left: -180px; } to { left: calc(100% + 60px); } }
+      @keyframes _cloud {
+        from { transform: scale(var(--cs,1)) translateX(-300px); }
+        to   { transform: scale(var(--cs,1)) translateX(calc(100vw + 60px)); }
+      }
 
       .anim-star {
         position: absolute; background: #fff; border-radius: 50%;
+        will-change: opacity;
         animation: _twinkle 3s ease-in-out infinite alternate;
       }
       @keyframes _twinkle { from { opacity: .2; } to { opacity: 1; } }
